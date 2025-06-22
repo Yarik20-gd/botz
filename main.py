@@ -56,7 +56,7 @@ def load_trainings():
     with open(TRAININGS_FILE, "r", encoding="utf-8") as f:
         return json.load(f)
 
-def save_data_trainings(trainings):
+def save_trainings(trainings):
     with open(TRAININGS_FILE, "w", encoding="utf-8") as f:
         json.dump(trainings, f, ensure_ascii=False, indent=2)
 
@@ -73,6 +73,23 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
 
+    if context.user_data.get("awaiting_expense"):
+        await handle_expense(update, context)
+        return
+
+    if context.user_data.get("awaiting_reset"):
+        await confirm_reset(update, context)
+        return
+
+    if context.user_data.get("awaiting_edit_command"):
+        await apply_training_edit(update, context)
+        return
+
+    if context.user_data.get("editing"):
+        await handle_edit_training(update, context)
+        return
+
+    # Основное меню
     if text == "📅 Дни без стиков":
         await show_no_iqos(update)
 
@@ -93,21 +110,9 @@ async def handle_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["awaiting_reset"] = True
         await update.message.reply_text("❗ Ты точно хочешь обнулить ВСЕ траты? Напиши `Да` или `Нет`")
 
-    elif text == "\u270f\ufe0f Редактировать тренировку":
+    elif text == "✏️ Редактировать тренировку":
         context.user_data["editing"] = True
         await update.message.reply_text("Какой день хочешь редактировать? (спина, грудь, руки, ноги, функционал)", reply_markup=ReplyKeyboardRemove())
-
-    elif context.user_data.get("awaiting_expense"):
-        await handle_expense(update, context)
-
-    elif context.user_data.get("awaiting_reset"):
-        await confirm_reset(update, context)
-
-    elif context.user_data.get("editing"):
-        await handle_edit_training(update, context)
-
-    elif context.user_data.get("awaiting_edit_command"):
-        await apply_training_edit(update, context)
 
     else:
         await update.message.reply_text("Выбери команду из меню 👇", reply_markup=MENU)
@@ -125,6 +130,7 @@ async def show_no_iqos(update: Update):
         await update.message.reply_text("📅 Отсчет начнётся завтра с 00:00!")
     else:
         await update.message.reply_text(f"🔥 Ты уже {days} дней {hours} часов {minutes} минут без стиков!")
+
 
 async def handle_edit_training(update: Update, context: ContextTypes.DEFAULT_TYPE):
     trainings = load_trainings()
@@ -151,7 +157,15 @@ async def handle_edit_training(update: Update, context: ContextTypes.DEFAULT_TYP
     elif day == "ноги":
         reply += "\n".join(trainings[day].get("фиксировано", []))
 
-    reply += "\n\n✏️ Что хочешь сделать?\n- Напиши `добавить: Упражнение`\n- Или `удалить: часть текста`"
+    reply += (
+        "\n\n✏️ Что хочешь сделать?\n"
+        "- Напиши `добавить: Упражнение`\n"
+        "- Или `удалить: часть текста`\n"
+        "Для тренировок рук можно добавить конкретно:\n"
+        "`добавить плечи: упражнение`\n"
+        "`добавить бицепс: упражнение`\n"
+        "`добавить трицепс: упражнение`"
+    )
     context.user_data["awaiting_edit_command"] = True
     await update.message.reply_text(reply)
 
@@ -166,23 +180,10 @@ async def apply_training_edit(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     if not day:
         await update.message.reply_text("Ошибка: день тренировки не выбран.", reply_markup=MENU)
+        context.user_data["awaiting_edit_command"] = False
         return
 
-    if msg.lower().startswith("добавить:"):
-        item = msg[9:].strip()
-        if day == "функционал":
-            trainings[day]["комментарий"] += f"\n{item}"
-        elif day in ["спина", "грудь"]:
-            if "варианты" in trainings[day] and trainings[day]["варианты"]:
-                trainings[day]["варианты"][0].append(item)
-        elif day == "ноги":
-            trainings[day]["фиксировано"].append(item)
-        elif day == "руки":
-            await update.message.reply_text("Укажи, куда добавить: плечи, бицепс или трицепс. Пример:\nдобавить плечи: упражнение")
-            return
-        await update.message.reply_text("✅ Добавлено!", reply_markup=MENU)
-
-    elif msg.lower().startswith("добавить плечи:"):
+    if msg.lower().startswith("добавить плечи:"):
         item = msg.split("добавить плечи:", 1)[1].strip()
         trainings["руки"]["плечи"].append(item)
         await update.message.reply_text("✅ Добавлено в плечи.", reply_markup=MENU)
@@ -197,6 +198,20 @@ async def apply_training_edit(update: Update, context: ContextTypes.DEFAULT_TYPE
         trainings["руки"]["трицепс"].append(item)
         await update.message.reply_text("✅ Добавлено в трицепс.", reply_markup=MENU)
 
+    elif msg.lower().startswith("добавить:"):
+        item = msg[9:].strip()
+        if day == "функционал":
+            trainings[day]["комментарий"] += f"\n{item}"
+        elif day in ["спина", "грудь"]:
+            if "варианты" in trainings[day] and trainings[day]["варианты"]:
+                trainings[day]["варианты"][0].append(item)
+        elif day == "ноги":
+            trainings[day]["фиксировано"].append(item)
+        elif day == "руки":
+            await update.message.reply_text("Укажи, куда добавить: плечи, бицепс или трицепс. Пример:\nдобавить плечи: упражнение", reply_markup=MENU)
+            return
+        await update.message.reply_text("✅ Добавлено!", reply_markup=MENU)
+
     elif msg.lower().startswith("удалить:"):
         term = msg[8:].strip()
         found = False
@@ -205,7 +220,7 @@ async def apply_training_edit(update: Update, context: ContextTypes.DEFAULT_TYPE
         if day == "функционал":
             old = trainings[day]["комментарий"]
             trainings[day]["комментарий"] = old.replace(term, "")
-            found = True if old != trainings[day]["комментарий"] else False
+            found = old != trainings[day]["комментарий"]
 
         elif day in ["спина", "грудь"]:
             for i in range(len(trainings[day]["варианты"])):
@@ -235,11 +250,15 @@ async def apply_training_edit(update: Update, context: ContextTypes.DEFAULT_TYPE
             await update.message.reply_text("❌ Не найдено для удаления.", reply_markup=MENU)
 
     else:
-        await update.message.reply_text("Неизвестная команда. Пример:\nдобавить: Упражнение\nудалить: часть текста")
+        await update.message.reply_text(
+            "Неизвестная команда. Пример:\n"
+            "добавить: Упражнение\n"
+            "удалить: часть текста",
+            reply_markup=MENU
+        )
 
-    save_data(trainings)
+    save_trainings(trainings)
     context.user_data["awaiting_edit_command"] = False
-
 
 
 async def show_training(update: Update):
@@ -376,8 +395,6 @@ def main():
     app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_menu))
-    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), apply_training_edit))
-
 
     app.run_polling()
 
