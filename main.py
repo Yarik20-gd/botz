@@ -2,7 +2,7 @@ import logging
 import os
 import json
 import random
-from datetime import datetime, timedelta, time
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from telegram import (
@@ -38,7 +38,11 @@ def load_data():
         with open(DATA_FILE, "w", encoding="utf-8") as f:
             json.dump(DEFAULT_DATA, f, ensure_ascii=False, indent=2)
     with open(DATA_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
+        data = json.load(f)
+    for key, val in DEFAULT_DATA.items():
+        if key not in data:
+            data[key] = val
+    return data
 
 
 def save_data(data):
@@ -148,7 +152,6 @@ async def show_training(update: Update):
         biceps = parts.get("бицепс", [])
         triceps = parts.get("трицепс", [])
 
-        # Выбрать 3 упражнения на плечи, 2 на бицепс, 2 на трицепс (случайно)
         if len(shoulders) < 3 or len(biceps) < 2 or len(triceps) < 2:
             await update.message.reply_text("Недостаточно упражнений в планах рук.")
             return
@@ -242,7 +245,6 @@ def main():
         return
 
     app = ApplicationBuilder().token(TOKEN).build()
-
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_menu))
 
